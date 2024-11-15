@@ -1,7 +1,8 @@
 const express = require('express');  // Import Express
 const app = express();               // Create an Express app
 const { Client } = require('pg');
-const cors  = require('cors'); 
+const cors  = require('cors');
+const bcrypt = require('bcrypt');
 
 
 // Middleware
@@ -44,17 +45,37 @@ app.get('/users', async (req, res) => {
   }    
 });
 
-// Sign .in Route
+// Sign in Route
 app.post('/signin', async (req,res) => {
+
     const { email , password } = req.body;
-    // Look up database users 
-    const users = await (await client.query('SELECT * FROM users')).rows;
-    // authentication here 
-    if(email === users[0].email && password === users[0].password) {
-      // Upon authenticating, provide client with token
-      res.json('923r82tjrfd')
-    } else {
-      res.status(500).json("bad attempt");
+
+    try {
+      // Returns promise of a user from database that matches the request email.
+      const selectUser = await client.query(`SELECT * FROM users WHERE email = '${email}'`)
+      // Promise is passed on to return a valid user 
+      .then(response => {
+        const validUser = response.rows[0];
+        return validUser;
+      })
+      // Authentication here 
+      // If there is no user in the database response 
+      if(!selectUser) {
+        selectUser = null;
+        res.status(500).send('No user found.')
+      }
+      // Else verify the hash & provide a JWT 
+      const hash = selectUser.hash;
+      bcrypt.compare(password, hash).then(function(result) {
+      //  Compare req.body to hash in DB, if true respond with JWT else send error 
+        result === true 
+        ? res.json(`JWT Token`)
+        : null;
+     });
+    
+       
+    } catch (err) {
+        res.status(500).send('Hmmm, something went wrong.')
     }
 })
 
