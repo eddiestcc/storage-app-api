@@ -66,11 +66,11 @@ app.post('/signin', async (req,res) => {
       }
       // Else verify the hash & provide a JWT 
       const hash = selectUser.hash;
-      bcrypt.compare(password, hash).then(function(result) {
+      bcrypt.compare(password, hash).then(function(result, err) {
       //  Compare req.body to hash in DB, if true respond with JWT else send error 
         result === true 
-        ? res.json(`JWT Token`)
-        : null;
+        ? res.json(selectUser)
+        : res.status(400).send('wrong credentials')
      });
     
        
