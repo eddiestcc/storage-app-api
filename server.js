@@ -24,9 +24,10 @@ const PORT = 3001;  // Set the port for the server
 
 // Get unit information from database
 app.get('/units', async (req, res) => {
+  // Get request that sends all the units to client 
   try {
-    const result = await client.query('SELECT * FROM units'); 
-    res.json(result.rows);
+    const units = await client.query('SELECT * FROM units JOIN accounts ON units.unit_number = accounts.unit_number ORDER BY units.unit_number ASC;'); 
+    res.json(units.rows);
   } catch (err) {
     console.error('Error executing query:', err);
     res.status(500).send('Server error');
@@ -47,10 +48,8 @@ app.get('/users', async (req, res) => {
 
 // Sign in Route
 app.post('/signin', async (req,res) => {
-
-    const { email , password } = req.body;
-
     try {
+      const { email , password } = req.body;
       // Returns promise of a user from database that matches the request email.
       const selectUser = await client.query(`SELECT * FROM users WHERE email = '${email}'`)
       // Promise is passed on to return a valid user 
@@ -77,9 +76,35 @@ app.post('/signin', async (req,res) => {
     } catch (err) {
         res.status(500).send('Hmmm, something went wrong.')
     }
-})
+});
+
+// ACCOUNT ROUTE
+
+app.get('/accounts/:userID', async (req, res) => {
+  try {
+      const userID = req.params.userID;
+      const requestedAccount = await client.query(`SELECT * FROM accounts WHERE id = ${userID} ;`)
+      .then(response => {
+        const validAccount = response.rows[0];
+        return validAccount;
+      }); 
+
+      if (!requestedAccount) {
+        res.status(400).json('no account found')
+      } else {
+        res.json(requestedAccount);
+      }
+    } catch (error) {
+      res.status(500).json('We think you broke something...');
+    }
+});
 
 // Start the server and listen on the specified port
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
+
+// ACCOUNT GET REQUEST 
+// DYNAMICALLY LOAD ACCOUNT DATA FROM BACKEND TO FRONT END
+// DATA NEEDED, NAME, CONTACT DETAILS, NOTES ON ACCOUNT, DOCUMENTS ON ACCOUNT,PAYMENT HISTORY
+// GATE CODE ETC.
