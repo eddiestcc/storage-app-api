@@ -26,7 +26,7 @@ const PORT = 3001;  // Set the port for the server
 app.get('/units', async (req, res) => {
   // Get request that sends all the units to client 
   try {
-    const units = await client.query('SELECT * FROM units JOIN accounts ON units.unit_number = accounts.unit_number ORDER BY units.unit_number ASC;'); 
+    const units = await client.query('SELECT * FROM accounts RIGHT OUTER JOIN units ON units.unit_number = accounts.unit_number ORDER BY units.unit_number ASC;');
     res.json(units.rows);
   } catch (err) {
     console.error('Error executing query:', err);
@@ -92,16 +92,110 @@ app.get('/accounts/:userID', async (req, res) => {
       if (!requestedAccount) {
         res.status(400).json('no account found')
       } else {
-        res.json(requestedAccount);
+        res.send(requestedAccount);
       }
     } catch (error) {
-      res.status(500).json('We think you broke something...');
+      res.status(500).json('We think you broke something... it was not us...');
     }
 });
 
 // Start the server and listen on the specified port
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
+});
+
+// NEW RENTAL ROUTE 
+
+// Get empty unit information from database
+app.get('/rental', async (req, res) => {
+  // Get request that sends all available units to client 
+  try {
+    const units = await client.query("SELECT * FROM units WHERE status = 'Available' ORDER BY unit_number ASC;");
+    res.json(units.rows);
+  } catch (err) {
+    console.error('Error executing query:', err);
+    res.status(500).send('Server error');
+  }    
+});
+
+
+app.post('/rental', async (req, res) => {
+  // Get request that sends all the units to client 
+  try {
+    const body = req.body;
+    const  
+    {   
+      firstName,
+      lastName,
+      dateOfBirth,
+      primaryPhone,
+      secondaryPhone,
+      email,
+      licenseNumber,
+      licenseExpiration,
+      licenseState,
+      street,
+      apartment,
+      city,
+      state,
+      zip,
+      unit,
+      price,
+      rentalStartDate,
+      paidThruDate,
+      status
+    } = body;
+
+    const fullName = `${firstName} ${lastName}`;
+
+    const insertRow = await client.query(
+    `
+    SELECT * FROM accounts RIGHT OUTER JOIN units ON units.unit_number = accounts.unit_number;
+    INSERT INTO accounts(
+      account_name,
+      date_of_birth,
+      phone_number,
+      second_phone_number,
+      email,
+      license_number,
+      license_expiration,
+      license_state,
+      street_one,
+      street_two,
+      city,
+      state,
+      zip_code,
+      unit_number,
+      rental_start_date,
+      paid_thru_date)
+    VALUES(  
+      '${fullName}',
+      '${dateOfBirth}',
+      '${primaryPhone}',
+      '${secondaryPhone}',
+      '${email}',
+      '${licenseNumber}',
+      '${licenseExpiration}',
+      '${licenseState}',
+      '${street}',
+      '${apartment}',
+      '${city}',
+      '${state}',
+      '${zip}',
+      '${unit}',
+      '${rentalStartDate}',
+      '${paidThruDate}');
+      UPDATE units
+      SET status = 'Rented'
+      WHERE unit_number = ${unit};`);
+
+    const id = await client.query(`SELECT id FROM accounts WHERE unit_number = ${unit};`)
+
+    res.status(200).send({status: 'success', id: id});
+  } catch (err) {
+    console.error('Error detected:', err);
+    res.status(500).send('Server error');
+  }    
 });
 
 // ACCOUNT GET REQUEST 
