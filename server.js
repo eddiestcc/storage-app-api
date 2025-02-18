@@ -24,50 +24,23 @@ client.connect();
 
 const PORT = 3001;  // Set the port for the server
 
-// // Set up storage engine
-// const storage = multer.diskStorage({
-//   destination: './uploads/',
-//   filename: function(req, file, cb) {
-//     cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
-//   }
-// });
-
-// // Init upload
-// const upload = multer({
-//   storage: storage,
-//   limits: { fileSize: 1000000 }, // Limit file size to 1MB
-//   fileFilter: function(req, file, cb) {
-//     checkFileType(file, cb);
-//   }
-// }).single('myImage');
-
-// // Check file type
-// function checkFileType(file, cb) {
-//   // Allowed file extensions
-//   const filetypes = /jpeg|jpg|png|pdf|gif/;
-//   // Check extension
-//   const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-//   // Check mime type
-//   const mimetype = filetypes.test(file.mimetype);
-
-//   if (mimetype && extname) {
-//     return cb(null, true);
-//   } else {
-//     cb('Error: Images Only!');
-//   }
-// }
-
-
 // Start the server and listen on the specified port
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
 
-// Get unit information from database
+// Routes
+
+// Units route GET
 app.get('/units', async (req, res) => {
   // Get request that sends all the units to client 
   try {
-    const units = await client.query('SELECT * FROM accounts RIGHT OUTER JOIN units ON units.unit_number = accounts.unit_number ORDER BY units.unit_number ASC;');
+    const units = await client.query(
+      `SELECT * FROM accounts
+      RIGHT OUTER JOIN units ON units.unit_number = accounts.unit_number 
+      WHERE units.status = 'Available'
+      OR accounts.status = 'Active' 
+      ORDER BY units.unit_number ASC;`);
     res.json(units.rows);
   } catch (err) {
     console.error('Error executing query:', err);
@@ -75,8 +48,9 @@ app.get('/units', async (req, res) => {
   }    
 });
 
-// Get users information from database
+// Users route GET
 app.get('/users', async (req, res) => {
+  // Get users information from database
   try {
     const result = await client.query('SELECT * FROM users'); 
     const json = res.json(result.rows);
@@ -119,12 +93,14 @@ app.post('/signin', async (req,res) => {
     }
 });
 
-// ACCOUNT ROUTE
+// Accout Route delete
 app.get('/accounts/:userID', async (req, res) => {
   try {
       const userID = req.params.userID;
       // Find the account that was requested
-      const requestedAccount = await client.query(`SELECT * FROM accounts WHERE id = ${userID} ;`)
+      const requestedAccount = await client.query(
+        `SELECT * FROM accounts 
+        WHERE id = ${userID};`)
       .then(response => {
         const validAccount = response.rows[0];
         return validAccount;
@@ -135,45 +111,139 @@ app.get('/accounts/:userID', async (req, res) => {
         res.status(400).json('no account found')
       } else {
         // Get all notes on the account
-        const allAccoutNotes = (await client.query(` SELECT * FROM notes WHERE account_number = ${requestedAccount.id} ORDER BY timestamp DESC;`)).rows;
+        const allAccoutNotes = (
+          await client.query(
+          ` SELECT * FROM notes 
+          WHERE account_number = ${requestedAccount.id} 
+          ORDER BY timestamp DESC;`)).rows;
 
         // Get ledger
-        const allLedgerDetails = (await client.query(` SELECT * FROM ledger WHERE account_number = ${requestedAccount.id} ORDER BY date DESC;`)).rows;
+        const allLedgerDetails = (
+          await client.query(
+            ` SELECT * FROM ledger 
+            WHERE account_number = ${requestedAccount.id} 
+            ORDER BY timestamp DESC;`)).rows;
 
         // Get Documents
-        const path = `uploads/${userID}`
+        // Dynamic path to users folder with their uploads.
+        const path = `uploads/${requestedAccount.id}`;
 
+        // Check path and returns array of files within the specified folder
+        const returnFolder = () => {
+          const pathExist = fs.existsSync(path);
+          const readFolder = () => { return fs.readdirSync(path) };
+          return pathExist ? readFolder() : null
+        }
+
+        const folder = returnFolder();
+        const documents = [];
+
+        // Only execute if a valid folder is found.
+        if (folder) {
+          // Loops through each file and performs an action on them.
+          folder.forEach(file => {
+          // Creates empty object and feeds it the file name and birthtime
+            const stats = fs.statSync(path + '/' + file)
+            const obj = {};
+            obj.filename = file;
+            obj.createdDate = stats.birthtime;
+            documents.push(obj)
+          })
+        }
         
-  
-        fs.readFile(`uploads/${userID}/myFile-1739030017610.jpg`, function(err,data){
-          if (err) {
-            console.log(err, 'err')
-            return;
-          } else {
-            console.log(data)
-            return;
-          }
-        })
-        
-        allAccoutNotes.length === 0 ? res.send({"account" : requestedAccount,"accountNotes" : "", "ledger": allLedgerDetails})
-        : res.send({
-          "account" : requestedAccount, 
-          "accountNotes" : allAccoutNotes, 
+       res.send({
+          "account": requestedAccount, 
+          "accountNotes": allAccoutNotes, 
           "ledger": allLedgerDetails, 
-          "documents": path,
+          "documents": documents
         });
       }
       
     } catch (error) {
+      console.log(error)
       res.status(500).json('We think you broke something... it was not us...');
     }
 });
 
-// Get empty unit information from database
+// Delete Accout Route
+app.post('/account/moveout', async (req, res) => {
+  try {
+     const {id , moveOutDate } = req.body
+    
+    // Dates
+     const today = Date.now()
+     const formatToday = new Date(today).toLocaleDateString('en-US', {
+      month: '2-digit',
+      day: '2-digit',
+      year: '2-digit'
+     })
+     
+      // Find the account that was requested
+      const requestedAccount = await client.query(
+        `SELECT * FROM accounts
+        RIGHT OUTER JOIN units ON units.unit_number = accounts.unit_number
+        WHERE accounts.id = ${id};`)
+      .then(response => {
+        const validAccount = response.rows[0];
+        return validAccount;
+      }); 
+      if (!requestedAccount) {
+        res.status(400).json('no account found')
+      } else {
+        let msg = '';
+
+        if (moveOutDate < formatToday) {
+          // Respond with a backdated move out
+          msg = `Customer's move out has been successfully backdated to ${moveOutDate}.`
+          res.send({msg: msg})
+        } else if (moveOutDate === formatToday) {
+          // Close account
+          const closeAccount = await client.query(
+            `DELETE FROM accounts
+            WHERE id = ${requestedAccount.id};
+            UPDATE units
+            SET status = 'Available'
+            WHERE unit_number = ${requestedAccount.unit_number};`)
+
+          msg = `Customer account has been successfully closed. Please exit page.`;
+
+          res.send({
+            msg: msg,
+            closedAcct: closeAccount,
+            reqAcct: requestedAccount
+          })
+        } else if (moveOutDate > formatToday) {
+          // Set move notice for the future
+          msg = `A move out date has been scheduled for ${moveOutDate}.`
+
+          const notice = await client.query(
+            `INSERT INTO notices(
+              account_id,
+              notice
+              )
+            VALUES(
+              ${requestedAccount.id},
+              ${msg}
+            );`)
+          
+          res.send({msg: msg})
+        }
+      }
+      
+    } catch (error) {
+      console.log(error)
+      res.status(500).json('We think you broke something... it was not us...');
+    }
+});
+
+// New Rental Route GET
 app.get('/rental', async (req, res) => {
   // Get request that sends all available units to client 
   try {
-    const units = await client.query("SELECT * FROM units WHERE status = 'Available' ORDER BY unit_number ASC;");
+    const units = await client.query(
+      `SELECT * FROM units 
+      WHERE status = 'Available' 
+      ORDER BY unit_number ASC;`);
     res.json(units.rows);
   } catch (err) {
     console.error('Error executing query:', err);
@@ -181,7 +251,7 @@ app.get('/rental', async (req, res) => {
   }    
 });
 
-// New Rental Route
+// New Rental Route Post
 app.post('/rental', async (req, res) => {
   // Get request that sends all the units to client 
   try {
@@ -207,7 +277,8 @@ app.post('/rental', async (req, res) => {
       rentalStartDate,
       paidThruDate,
       status,
-      total
+      total,
+      timestamp
     } = body;
 
     const fullName = `${firstName} ${lastName}`;
@@ -215,11 +286,7 @@ app.post('/rental', async (req, res) => {
     const tax = Number(total.tax);
 
     const grandTotal = Number(total.grandTotal);
-
-    const today = new Date();
     
-    const date = today.toLocaleDateString()
-
     const details = 'Payment was made';
 
     const insertRow = await client.query(
@@ -242,7 +309,8 @@ app.post('/rental', async (req, res) => {
       zip_code,
       unit_number,
       rental_start_date,
-      paid_thru_date)
+      paid_thru_date,
+      status)
     VALUES(  
       '${fullName}',
       '${dateOfBirth}',
@@ -259,7 +327,8 @@ app.post('/rental', async (req, res) => {
       '${zip}',
       '${unit}',
       '${rentalStartDate}',
-      '${paidThruDate}');
+      '${paidThruDate}',
+      'Active');
       UPDATE units
       SET status = 'Rented'
       WHERE unit_number = ${unit};`);
@@ -274,13 +343,13 @@ app.post('/rental', async (req, res) => {
           unit,
           account_number,
           details,
-          date,
+          timestamp,
           amount)
         VALUES(  
           '${unit}',
           '${account_number}',
           '${details}',
-          '${date}',
+          '${timestamp}',
           '${grandTotal}');
           `);
 
@@ -343,7 +412,9 @@ app.get('/receipt/:transaction_id', async (req, res) => {
   try {
       const transaction_id = req.params.transaction_id;
       // Find the transaction that was requested
-      const requestedTransaction = await client.query(`SELECT * FROM ledger WHERE transaction_id = ${transaction_id};`)
+      const requestedTransaction = await client.query(
+        `SELECT * FROM ledger 
+        WHERE transaction_id = ${transaction_id};`)
       .then(response => {
         const transaction = response.rows[0];
         return transaction;
@@ -367,6 +438,106 @@ app.get('/receipt/:transaction_id', async (req, res) => {
   }
 });
 
+// Upload Route
+app.post('/upload', (req, res) => {
+
+  upload(req, res, (err) => {
+    if (err) {
+      res.send({ msg: err })
+    } else {
+      if (req.file == undefined) {
+        res.send({ msg: 'No file selected!' });
+      } else {
+
+        const { userID } = req.body;
+
+         // Dynamic path to users folder with their uploads.
+         const path = `uploads/${userID}`
+         const documents = [];
+ 
+         // Only execute if a valid path is found.
+         if (path) {
+           // Returns array of files within the specified folder
+           const folder = fs.readdirSync(path);
+ 
+           // Loops through each file and performs an action on them.
+           folder.forEach(file => {
+           // Creates empty object and feeds it the file name and birthtime
+             const stats = fs.statSync(path + '/' + file)
+             const obj = {};
+             obj.filename = file;
+             obj.createdDate = stats.birthtime;
+             documents.push(obj)
+           })
+         }
+
+        res.send({
+          msg: 'File uploaded!',
+          file: req.file,
+          documents: documents
+        });
+      }
+    }
+  });
+  
+});
+
+// Download Route
+app.post('/download', (req, res) => {
+
+  const {filename, userID} = req.body;
+
+  console.log(req.body)
+
+  const pathRoute = `uploads/${userID}/${filename}`
+
+  res.sendFile(
+    path.join(__dirname, pathRoute)
+  )
+  
+});
+
+// Document route
+app.get('/documents/:document_id', async (req, res) => {
+  try {
+      const document_id = req.params.document_id;
+      // Find the account that was requested
+      const requestedAccount = await client.query(`SELECT * FROM accounts WHERE id = ${userID} ;`)
+      .then(response => {
+        const validAccount = response.rows[0];
+        return validAccount;
+      }); 
+
+
+      if (!requestedAccount) {
+        res.status(400).json('no account found')
+      } else {
+        // Get all notes on the account
+        const allAccoutNotes = (await client.query(` SELECT * FROM notes WHERE account_number = ${requestedAccount.id} ORDER BY timestamp DESC;`)).rows;
+
+        // Get ledger
+        const allLedgerDetails = (await client.query(` SELECT * FROM ledger WHERE account_number = ${requestedAccount.id} ORDER BY date DESC;`)).rows;
+
+        // Get Documents
+        const path = `uploads/${userID}`
+
+        
+        allAccoutNotes.length === 0 ? res.send({"account" : requestedAccount,"accountNotes" : "", "ledger": allLedgerDetails})
+        : res.send({
+          "account" : requestedAccount, 
+          "accountNotes" : allAccoutNotes, 
+          "ledger": allLedgerDetails, 
+          "documents": path,
+        });
+      }
+      
+    } catch (error) {
+      res.status(500).json('We think you broke something... it was not us...');
+    }
+});
+
+
+// Multer variables
 // Init upload
 const upload = multer({
   storage: storage,
@@ -379,7 +550,7 @@ const upload = multer({
 // Check file type
 function checkFileType(file, cb) {
   // Allowed file extensions
-  const filetypes = /jpeg|jpg|png|gif/;
+  const filetypes = /jpeg|jpg|png|gif|pdf/;
   // Check extension
   const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
   // Check mime type
@@ -391,23 +562,3 @@ function checkFileType(file, cb) {
     cb('Error: Images Only!');
   }
 }
-
-// Document Route
-app.post('/upload', (req, res) => {
-
-  upload(req, res, (err) => {
-    if (err) {
-      res.send({ msg: err })
-    } else {
-      if (req.file == undefined) {
-        res.send({ msg: 'No file selected!' });
-      } else {
-        res.send({
-          msg: 'File uploaded!',
-          file: req.file,
-        });
-      }
-    }
-  });
-  
-});
