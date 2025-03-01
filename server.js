@@ -124,6 +124,20 @@ app.get('/accounts/:userID', async (req, res) => {
             WHERE account_number = ${requestedAccount.id} 
             ORDER BY timestamp DESC;`)).rows;
 
+        // Get moveout notice
+        const moveOut = (
+          await client.query(
+            ` SELECT * FROM notices 
+            WHERE account_id = ${requestedAccount.id} 
+            ORDER BY timestamp ASC;`)).rows;
+
+        // Get rent
+        const rent = (
+          await client.query(
+          ` SELECT * FROM accounts
+          RIGHT OUTER JOIN units ON units.unit_number = accounts.unit_number
+          WHERE accounts.id = ${requestedAccount.id};`)).rows;
+
         // Get Documents
         // Dynamic path to users folder with their uploads.
         const path = `uploads/${requestedAccount.id}`;
@@ -155,7 +169,9 @@ app.get('/accounts/:userID', async (req, res) => {
           "account": requestedAccount, 
           "accountNotes": allAccoutNotes, 
           "ledger": allLedgerDetails, 
-          "documents": documents
+          "documents": documents,
+          "moveOut": moveOut,
+          "rent": rent
         });
       }
       
@@ -172,6 +188,14 @@ app.post('/account/moveout', async (req, res) => {
     
     // Dates
      const today = Date.now()
+     const timestamp = new Date(today).toLocaleDateString('en-US', {
+      month: '2-digit',
+      day: '2-digit',
+      year: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+     })
      const formatToday = new Date(today).toLocaleDateString('en-US', {
       month: '2-digit',
       day: '2-digit',
@@ -194,6 +218,12 @@ app.post('/account/moveout', async (req, res) => {
 
         if (moveOutDate < formatToday) {
           // Respond with a backdated move out
+          const closeAccount = await client.query(
+            `DELETE FROM accounts
+            WHERE id = ${requestedAccount.id};
+            UPDATE units
+            SET status = 'Available'
+            WHERE unit_number = ${requestedAccount.unit_number};`)
           msg = `Customer's move out has been successfully backdated to ${moveOutDate}.`
           res.send({msg: msg})
         } else if (moveOutDate === formatToday) {
@@ -219,11 +249,13 @@ app.post('/account/moveout', async (req, res) => {
           const notice = await client.query(
             `INSERT INTO notices(
               account_id,
-              notice
+              notice,
+              timestamp
               )
             VALUES(
-              ${requestedAccount.id},
-              ${msg}
+              '${requestedAccount.id}',
+              '${msg}',
+              '${timestamp}'
             );`)
           
           res.send({msg: msg})
